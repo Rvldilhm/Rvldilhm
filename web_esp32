@@ -1,0 +1,169 @@
+#include <WiFi.h>
+#include <DHT.h>
+
+// Replace with your network credentials
+const char* ssid = "BABIBUBEGO";
+const char* password = "12345678ad";
+
+// Set web server port number to 80
+WiFiServer server(80);
+
+// Variable to store the HTTP request
+String header;
+
+// Define the DHT sensor and pin connection
+#define DHTPIN 13 // Define the pin where the DHT sensor is connected
+#define DHTTYPE DHT11 // Define the type of DHT sensor you are using
+
+DHT dht(DHTPIN, DHTTYPE);
+float suhu, rh; // Variables to store temperature and humidity readings
+
+// Define the pins for controlling the L298 motor driver
+const int R1 = 26; // ESP32 pins (MR=Right Motor) (ML=Left Motor) (1=Forward) (2=Backward)
+const int R2 = 5;
+
+// Current time
+unsigned long currentTime = millis();
+// Previous time
+unsigned long previousTime = 0;
+// Define timeout time in milliseconds (example: 2000ms = 2s)
+const long timeoutTime = 2000;
+
+void relay1on() {
+  digitalWrite(R1, HIGH); // MOVE FRONT
+}
+
+void relay1off() {
+  digitalWrite(R1, LOW);
+}
+
+void relay2on() {
+  digitalWrite(R2, HIGH);
+}
+
+void relay2off() {
+  digitalWrite(R2, LOW);
+}
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Initialize the DHT sensor
+  dht.begin();
+
+  // Initialize the output variables as outputs
+  pinMode(R1, OUTPUT);
+  pinMode(R2, OUTPUT);
+
+  // Set outputs to LOW (optional)
+  // digitalWrite(R1, LOW);
+  // digitalWrite(R2, LOW);
+
+  // Connect to Wi-Fi network with SSID and password
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  
+  // Print local IP address and start web server
+  Serial.println("");
+  Serial.println("WiFi connected.");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+  server.begin();
+}
+
+void loop() {
+  WiFiClient client = server.available(); // Listen for incoming clients
+
+  if (client) { // If a new client connects,
+    currentTime = millis();
+    previousTime = currentTime;
+    Serial.println("New Client."); // Print a message in the serial monitor
+    String currentLine = ""; // Create a string to hold incoming data from the client
+
+    while (client.connected() && currentTime - previousTime <= timeoutTime) {
+      currentTime = millis();
+
+      if (client.available()) {
+        char c = client.read();
+        Serial.write(c);
+        header += c;
+
+        if (c == '\n') {
+          if (currentLine.length() == 0) {
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-type:text/html");
+            client.println("Connection: close");
+            client.println();
+            
+            if (header.indexOf("GET /relay1on") >= 0) {
+              relay1on();
+            } else if (header.indexOf("GET /relay1off") >= 0) {
+              relay1off();
+            } else if (header.indexOf("GET /relay2on") >= 0) {
+              relay2on();
+            } else if (header.indexOf("GET /relay2off") >= 0) {
+              relay2off();
+            }
+
+            suhu = dht.readTemperature();
+            rh = dht.readHumidity();
+
+            // Send HTML response with sensor data and the buttons
+            client.println("<!DOCTYPE html><html>");
+            client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+            client.println("<link rel=\"icon\" href=\"data:,\">");
+            client.println("<style>");
+            client.println(":root { --glow-color: hsl(186 100% 69%); }");
+            client.println("*, *::before, *::after { box-sizing: border-box; }");
+            client.println("html, body { height: 100%; width: 100%; overflow: hidden; }");
+            client.println("body { min-height: 100vh; display: flex; flex-direction: column; align-items: center; background: black; }");
+            client.println(".glowing-btn { position: relative; color: var(--glow-color); cursor: pointer; padding: 0.35em 1em; border: 0.15em solid var(--glow-color); border-radius: 0.45em; background: none; perspective: 2em; font-family: 'Raleway', sans-serif; font-size: 2em; font-weight: 900; letter-spacing: 1em; -webkit-box-shadow: inset 0px 0px 0.5em 0px var(--glow-color), 0px 0px 0.5em 0px var(--glow-color); -moz-box-shadow: inset 0px 0px 0.5em 0px var(--glow-color), 0px 0px 0.5em 0px var(--glow-color); box-shadow: inset 0px 0px 0.5em 0px var(--glow-color), 0px 0px 0.5em 0px var(--glow-color); animation: border-flicker 2s linear infinite; }");
+            client.println(".glowing-txt { float: left; margin-right: -0.8em; -webkit-text-shadow: 0 0 0.125em hsl(0 0% 100% / 0.3), 0 0 0.45em var(--glow-color); -moz-text-shadow: 0 0 0.125em hsl(0 0% 100% / 0.3), 0 0 0.45em var(--glow-color); text-shadow: 0 0 0.125em hsl(0 0% 100% / 0.3), 0 0 0.45em var(--glow-color); animation: text-flicker 3s linear infinite; }");
+            client.println(".faulty-letter { opacity: 0.5; animation: faulty-flicker 2s linear infinite; }");
+            client.println(".glowing-btn::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; right: 0; opacity: 0.7; filter: blur(1em); transform: translateY(120%) rotateX(95deg) scale(1, 0.35); background: var(--glow-color); pointer-events: none; }");
+            client.println(".glowing-btn::after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; opacity: 0; z-index: -1; background-color: var(--glow-color); box-shadow: 0 0 2em 0.2em var(--glow-color); transition: opacity 100ms linear; }");
+            client.println(".glowing-btn:hover { color: rgba(0, 0, 0, 0.8); text-shadow: none; animation: none; }");
+            client.println(".glowing-btn:hover .glowing-txt { animation: none; }");
+            client.println(".glowing-btn:hover .faulty-letter { animation: none; text-shadow: none; opacity: 1; }");
+            client.println(".glowing-btn:hover:before { filter: blur(1.5em); opacity: 1; }");
+            client.println(".glowing-btn:hover:after { opacity: 1; }");
+            client.println(".sensor-data { font-size: 1.5em; color: white; }");
+            client.println("</style></head>");
+            
+            client.println("<body><h1>ESP32 Robotic Web Server</h1>");
+            client.println("<p class='sensor-data'>Suhu: " + String(suhu) + " &#8451;</p>");
+            client.println("<p class='sensor-data'>Kelembaban: " + String(rh) + " %</p>");
+
+            // Relay 1 Control Buttons
+            client.println("<p><button class='glowing-btn' onclick='relay1on()'>Relay 1 On</button></p>");
+            client.println("<p><button class='glowing-btn' onclick='relay1off()'>Relay 1 Off</button></p>");
+
+            // Relay 2 Control Buttons
+            client.println("<p><button class 'glowing-btn' onclick='relay2on()'>Relay 2 On</button></p>");
+            client.println("<p><button class='glowing-btn' onclick='relay2off()'>Relay 2 Off</button></p>");
+
+            client.println("</body></html>");
+
+            client.println();
+            break;
+          } else {
+            currentLine = "";
+          }
+        } else if (c != '\r') {
+          currentLine += c;
+        }
+      }
+    }
+
+    header = "";
+    client.stop();
+    Serial.println("Client disconnected.");
+    Serial.println("");
+  }
+}
